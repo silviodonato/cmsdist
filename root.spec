@@ -1,60 +1,49 @@
-### RPM lcg root 6.20.06
-## INITENV +PATH PYTHON27PATH %{i}/lib
-## INITENV +PATH PYTHON3PATH %{i}/lib
-## INITENV SET ROOTSYS %{i}
-%define tag ff0d0942d42220f5f4bb3c92acde27a3373aea80
-%define branch cms/v6-20-00-patches/6781331
-%define github_user cms-sw
-Source: git+https://github.com/%{github_user}/root.git?obj=%{branch}/%{tag}&export=%{n}-%{realversion}&output=/%{n}-%{realversion}-%{tag}.tgz
+  -DLZ4_LIBRARY="${LZ4_ROOT}/lib/liblz4.%{soext}" \
+  -DZLIB_ROOT="${ZLIB_ROOT}" \
+  -DZLIB_INCLUDE_DIR="${ZLIB_ROOT}/include" \
+  -DZSTD_ROOT="${ZSTD_ROOT}" \
+  -DCMAKE_PREFIX_PATH="${LZ4_ROOT}/include;${LZ4_ROOT}/lib;${GSL_ROOT};${XZ_ROOT};${OPENSSL_ROOT};${GIFLIB_ROOT};${FREETYPE_ROOT};${PYTHON_ROOT};${LIBPNG_ROOT};${PCRE_ROOT};${TBB_ROOT};${OPENBLAS_ROOT};${DAVIX_ROOT};${LZ4_ROOT};${LIBXML2_ROOT};${ZSTD_ROOT}"
 
-%define islinux %(case %{cmsos} in (slc*|fc*) echo 1 ;; (*) echo 0 ;; esac)
-%define isdarwin %(case %{cmsos} in (osx*) echo 1 ;; (*) echo 0 ;; esac)
+# For CMake cache variables: http://www.cmake.org/cmake/help/v3.2/manual/cmake-language.7.html#lists
+# For environment variables it's OS specific: http://www.cmake.org/Wiki/CMake_Useful_Variables
 
-BuildRequires: cmake ninja
+#  Required for generated dictionaries during ROOT6 compile/install
+ROOT_INCLUDE_PATH=
+for DEP in %requiredtools; do
+  ROOT_INCLUDE_PATH=$(eval echo $(printf "\${%%s_ROOT}/include" $(echo $DEP | tr "[a-z]-" "[A-Z]_"))):$ROOT_INCLUDE_PATH
+done
 
-Requires: gsl libjpeg-turbo libpng libtiff giflib pcre python fftw3 xz xrootd libxml2 openssl zlib davix tbb OpenBLAS py2-numpy lz4 freetype zstd
+export ROOT_INCLUDE_PATH
+export ROOTSYS="%{i}"
 
-%if %islinux
-Requires: dcap
-%endif
+ninja -v %{makeprocesses} -l $(getconf _NPROCESSORS_ONLN)
 
-%define soext so
-%if %isdarwin
-%define soext dylib
-%endif
-
-%define keep_archives true
-
-%prep
-%setup -n %{n}-%{realversion}
-
-%build
-rm -rf ../build
-mkdir ../build
+%install
 cd ../build
 
-export PYTHONV=$(echo $PYTHON_VERSION | cut -f1,2 -d.)
-export CFLAGS=-D__ROOFIT_NOBANNER
-export CXXFLAGS=-D__ROOFIT_NOBANNER
+# Required for generated dictionaries during ROOT6 compile/install
+ROOT_INCLUDE_PATH=
+for DEP in %requiredtools; do
+  ROOT_INCLUDE_PATH=$(eval echo $(printf "\${%%s_ROOT}/include" $(echo $DEP | tr "[a-z]-" "[A-Z]_"))):$ROOT_INCLUDE_PATH
+done
 
-cmake ../%{n}-%{realversion} \
-  -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="%{i}" \
-  -DCMAKE_C_COMPILER=gcc \
-  -DCMAKE_CXX_COMPILER=g++ \
-  -DCMAKE_Fortran_COMPILER=gfortran \
-  -DCMAKE_LINKER=ld \
-  -DCMAKE_VERBOSE_MAKEFILE=TRUE \
-  -Droot7=ON \
-  -Dfail-on-missing=ON \
-  -Dgnuinstall=OFF \
-  -Droofit=ON \
-  -Dvdt=OFF \
-  -Dhdfs=OFF \
-  -Dqt=OFF \
-  -Dtmva=ON \
+export ROOT_INCLUDE_PATH
+export ROOTSYS="%{i}"
+
+ninja -v %{makeprocesses} -l $(getconf _NPROCESSORS_ONLN) install
+
+find %{i} -type f -name '*.py' | xargs chmod -x
+grep -R -l '#!.*python' %{i} | xargs chmod +x
+perl -p -i -e "s|#!/bin/perl|#!/usr/bin/env perl|" %{i}/bin/memprobe
+
+#Make sure root build directory is not available after the root install is done
+#This will catch errors if root remembers the build paths.
+cd ..
+rm -rf build
+
+%post
+%{relocateConfig}etc/cling/llvm/Config/llvm-config.h
+
   -Dqtgsi=OFF \
   -Dpgsql=OFF \
   -Dsqlite=OFF \
